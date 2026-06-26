@@ -20,7 +20,7 @@ void loop() {
   
   /* Motor 1 */
   analogWrite(IN1, speed);
-  digitalWrite(IN2, LOW);
+  digitalWrite(IN2, LOW); // Fast decay mode (change to low for slow decay)
 
   /* Motor 2 */
   analogWrite(IN3, speed);
