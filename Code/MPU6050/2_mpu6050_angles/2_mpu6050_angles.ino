@@ -42,12 +42,12 @@ void setup() {
   devStatus = mpu.dmpInitialize();
 
   /* Supply your calibrated offsets here */
-  mpu.setXAccelOffset(-3442); // YOUR VALUE HERE
-  mpu.setYAccelOffset(998); // YOUR VALUE HERE
-  mpu.setZAccelOffset(3074); // YOUR VALUE HERE
-  mpu.setXGyroOffset(46); // YOUR VALUE HERE
-  mpu.setYGyroOffset(-43); // YOUR VALUE HERE
-  mpu.setZGyroOffset(-68); // YOUR VALUE HERE
+  mpu.setXAccelOffset(-3592); // YOUR VALUE HERE
+  mpu.setYAccelOffset(1048); // YOUR VALUE HERE
+  mpu.setZAccelOffset(6798); // YOUR VALUE HERE
+  mpu.setXGyroOffset(43); // YOUR VALUE HERE
+  mpu.setYGyroOffset(-31); // YOUR VALUE HERE
+  mpu.setZGyroOffset(-60); // YOUR VALUE HERE
 
   /* Making sure it worked (returns 0 if so) */ 
   if (devStatus == 0) {
