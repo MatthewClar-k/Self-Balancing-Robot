@@ -6,7 +6,7 @@ int IN2 = 9;
 int IN3 = 6;
 int IN4 = 5;
 
-int speed = 150; // Value between 0 and 255 (Voltage must not exceed max motor voltage - measure this!)
+int speed = 60; // Value between 0 and 255 (Voltage must not exceed max motor voltage - measure this!)
 
 void setup() {
 
@@ -19,8 +19,8 @@ void setup() {
 void loop() {
   
   /* Motor 1 */
+  digitalWrite(IN1, LOW); // Fast decay mode
   analogWrite(IN2, speed);
-  digitalWrite(IN1, LOW); // Fast decay mode (change to low for slow decay)
 
   /* Motor 2 */
   analogWrite(IN3, speed);
