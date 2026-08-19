@@ -1,20 +1,26 @@
 #include <PID_v1.h>
 #include "I2Cdev.h"
-#include "MPU6050_6Axis_MotionApps20.h"
+#include "MPU6050.h"
 
 MPU6050 mpu;
 
-/*---MPU6050 Control/Status Variables---*/
-bool DMPReady = false;  // Set true if DMP init was successful
-uint8_t devStatus;      // Return status after each device operation (0 = success, !0 = error)
-uint8_t FIFOBuffer[64]; // FIFO storage buffer
+/*---Complementary filter: accel Y/Z + gyro X. No DMP.---*/
+/*---Offset registers forced to zero; bias handled in software.---*/
 
-/*---Orientation/Motion Variables---*/ 
-Quaternion q;           // [w, x, y, z]         Quaternion container
-VectorFloat gravity;    // [x, y, z]            Gravity vector
-float ypr[3];           // [yaw, pitch, roll]   Yaw/Pitch/Roll container and gravity vector
+/*--- From six-pose characterisation ---*/
+const float AY_BIAS  = -9581.0f;
+const float AZ_BIAS  = -11745.0f;
+const float AY_SCALE =  16393.0f;   // counts per g, measured
+const float AZ_SCALE =  16741.0f;
+const float GX_BIAS  =   -166.0f;   // gyro LSB at rest
 
-double currentAngle = 0;
+const float GYRO_LSB_PER_DPS = 131.0f;   // +/-250 deg/s
+const float GYRO_SIGN        = -1.0f;    // inverted mount
+const float ALPHA            = 0.98f;
+const unsigned long LOOP_MS  = 10;
+
+float angle = 0.0f;                 // filtered pitch, degrees
+unsigned long tPrev;
 
 /*---Arduino to DRV8833 Mapping---*/
 int IN1 = 10; // Pin10 <---> IN1
@@ -58,9 +64,6 @@ PID myPID(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
 void setup() {
   Wire.begin();
   Wire.setClock(400000); // OPTIONAL: Boost I2C speed to 400kHz for faster updates
-  
-  Serial.begin(115200);
-  while (!Serial);
 
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
@@ -70,48 +73,32 @@ void setup() {
   digitalWrite(BTN_GND, LOW);
   pinMode(BTN_IN, INPUT_PULLUP);
 
-  Serial.println(F("Initializing I2C devices..."));
   mpu.initialize();
 
   /*Verify connection*/
-  if(mpu.testConnection() == false){
-    Serial.println("MPU6050 connection failed");
-    while(true);
+  if (mpu.testConnection() == false) {
+    while (true);   // fatal: no MPU6050
   }
 
-  /* Initializate and configure the DMP*/
-  Serial.println(F("Initializing DMP..."));
-  devStatus = mpu.dmpInitialize();
+  mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);
+  mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
+  mpu.setDLPFMode(3);                 // ~44Hz, kills motor vibration
 
-  /* Supply your calibrated offsets here */
-  mpu.setXAccelOffset(-3442); // YOUR VALUE HERE
-  mpu.setYAccelOffset(998); // YOUR VALUE HERE
-  mpu.setZAccelOffset(3074); // YOUR VALUE HERE
-  mpu.setXGyroOffset(46); // YOUR VALUE HERE
-  mpu.setYGyroOffset(-43); // YOUR VALUE HERE
-  mpu.setZGyroOffset(-68); // YOUR VALUE HERE
+  /* Force offsets to zero. Factory trim reloads on power-up, so this
+     must be explicit or the software biases above stop matching. */
+  mpu.setXAccelOffset(0); mpu.setYAccelOffset(0); mpu.setZAccelOffset(0);
+  mpu.setXGyroOffset(0);  mpu.setYGyroOffset(0);  mpu.setZGyroOffset(0);
 
-  /* Making sure it worked (returns 0 if so) */ 
-  if (devStatus == 0) {
+  /* Seed the filter from the accelerometer so it starts converged */
+  int16_t ax, ay, az, gx, gy, gz;
+  mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+  angle = atan2((ay - AY_BIAS) / AY_SCALE,
+                -(az - AZ_BIAS) / AZ_SCALE) * 180.0f / M_PI;
 
-    Serial.println("These are the Active offsets: ");
-    mpu.PrintActiveOffsets();
+  tPrev = millis();
 
-    Serial.println(F("Enabling DMP..."));   //Turning ON DMP
-    mpu.setDMPEnabled(true);
-
-    DMPReady = true;
-  } 
-  else {
-    Serial.print(F("DMP Initialization failed (code ")); //Print the error code
-    Serial.print(devStatus);
-    Serial.println(F(")"));
-    // 1 = initial memory load failed
-    // 2 = DMP configuration updates failed
-  }
-  
   setpoint = 0.0; // Target angle (0 degrees = upright)
-  
+
   myPID.SetMode(AUTOMATIC); // Start the PID running
   myPID.SetOutputLimits(-255, 255); // Match PWM range
   myPID.SetSampleTime(10); // Match loop time (ms)
@@ -129,41 +116,41 @@ void driveMotors(double output) {
 
   if (output > 0) {
     // Forward
-    analogWrite(IN1, pwm);
-    digitalWrite(IN2, LOW);
+    digitalWrite(IN1, LOW);
+    analogWrite(IN2, pwm);
     analogWrite(IN3, pwm);
     digitalWrite(IN4, LOW);
   }
   else {
     //Reverse
-    digitalWrite(IN1, LOW);
-    analogWrite(IN2, pwm);
+    analogWrite(IN1, pwm);
+    digitalWrite(IN2, LOW);
     digitalWrite(IN3, LOW);
     analogWrite(IN4, pwm);
   }
 }
 
 void loop() {
-  if (!DMPReady) return; 
-    
-  /* Check for a fresh packet from the FIFO buffer */
-  if (mpu.dmpGetCurrentFIFOPacket(FIFOBuffer)) { 
-    
-    // Process angles using the dependency chain
-    mpu.dmpGetQuaternion(&q, FIFOBuffer);
-    mpu.dmpGetGravity(&gravity, &q);
-    mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-    
-    // Print Yaw, Pitch, Roll in degrees
-    // Serial.print("Yaw: ");   Serial.print(ypr[0] * 180/M_PI);
-    // Serial.print("\tPitch: "); Serial.print(ypr[1] * 180/M_PI);
-    // Serial.print("\tRoll: ");  Serial.println(ypr[2] * 180/M_PI);
 
-    currentAngle = ypr[1] * 180/M_PI;
+  /* Complementary filter tick, every LOOP_MS */
+  unsigned long now = millis();
+  if (now - tPrev >= LOOP_MS) {
+    float dt = (now - tPrev) / 1000.0f;
+    tPrev = now;
+
+    int16_t ax, ay, az, gx, gy, gz;
+    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+    float accAngle = atan2((ay - AY_BIAS) / AY_SCALE,
+                           -(az - AZ_BIAS) / AZ_SCALE) * 180.0f / M_PI;
+
+    float rate = GYRO_SIGN * (gx - GX_BIAS) / GYRO_LSB_PER_DPS;   // deg/s
+
+    angle = ALPHA * (angle + rate * dt) + (1.0f - ALPHA) * accAngle;
+
+    //1. Update input from filter
+    input = angle; // degrees, from MPU6050
   }
-  
-  //1. Update input from filter
-  input = currentAngle; // degrees, from MPU6050
 
   // 2. Compute() returns true only when the sample time has elapsed
   if (myPID.Compute()) {
