@@ -55,7 +55,7 @@ unsigned long lastChange = 0;
 
 // Define variables
 double setpoint, input, output;
-double Kp = 10, Ki = 0.0, Kd = 0.0;
+double Kp = 10, Ki = 5.0, Kd = 0.0;
 
 // Create PID object
 // Arguments: Input, Output, Setpoint, Kp, Ki, Kd, Direction
@@ -104,7 +104,7 @@ void setup() {
   myPID.SetSampleTime(10); // Match loop time (ms)
 }
 
-const int MIN_PWM = 20; // lowest PWM that actually turns the wheels (measure it)
+const int MIN_PWM = 60; // lowest PWM that actually turns the wheels (measure it)
 
 void driveMotors(double output) {
   int pwm = abs((int(output)));
