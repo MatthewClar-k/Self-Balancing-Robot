@@ -1,4 +1,4 @@
-// This program is used to test the motors
+// This program is used to test the motors (fast decay mode)
 
 // Arduino pins
 int IN1 = 10;
