@@ -1,9 +1,7 @@
-const uint8_t BTN_GND = 4;   // driven LOW — acts as ground
-// 1k ohm resistor in series
-const uint8_t BTN_IN  = 7;   // input with internal pull-up
+const uint8_t BTN_IN = 7;   // input with internal pull-up, button to GND rail
 
-const uint8_t RedLED = 12; // Anode via 330R, cathode to GND rail
-const uint8_t = 8; // Anode via 330R, cathode to GND rail
+const uint8_t RedLED   = 12; // Anode via 330R, cathode to GND rail
+const uint8_t GreenLED = 8;  // Anode via 330R, cathode to GND rail
 
 const uint16_t DEBOUNCE_MS = 25;
 
@@ -14,8 +12,6 @@ unsigned long lastChange = 0;
 void setup() {
   Serial.begin(115200);
 
-  pinMode(BTN_GND, OUTPUT);
-  digitalWrite(BTN_GND, LOW);
   pinMode(BTN_IN, INPUT_PULLUP);
 
   pinMode(RedLED, OUTPUT);
