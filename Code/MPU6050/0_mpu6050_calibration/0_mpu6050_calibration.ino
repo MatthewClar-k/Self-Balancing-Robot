@@ -29,15 +29,32 @@ const char* poseName[NUM_POSES] = {
 
 const char axisLetter[3] = {'X', 'Y', 'Z'};
 
+/*---Arduino to Button Mapping---*/
+const uint8_t BTN_GND = 4;   // driven LOW - acts as ground
+// 1k ohm resistor in series
+const uint8_t BTN_IN  = 7;   // input with internal pull-up
+const uint16_t DEBOUNCE_MS = 25;
+
 float A[NUM_POSES][3];
 float G[NUM_POSES][3];
 long  wob[NUM_POSES];
 bool  clipped[NUM_POSES];
 
-void waitForKey() {
-  while (Serial.available()) Serial.read();
-  while (!Serial.available()) ;
-  while (Serial.available()) Serial.read();
+/* Blocks until one clean press-and-release of the button (active LOW). */
+void waitForButton() {
+  /* ignore the button if it is still held from the previous step */
+  while (digitalRead(BTN_IN) == LOW) delay(5);
+  delay(DEBOUNCE_MS);
+
+  /* wait for a press that survives the debounce window */
+  do {
+    while (digitalRead(BTN_IN) == HIGH) delay(5);
+    delay(DEBOUNCE_MS);
+  } while (digitalRead(BTN_IN) == HIGH);
+
+  /* wait for release so this press is not counted twice */
+  while (digitalRead(BTN_IN) == LOW) delay(5);
+  delay(DEBOUNCE_MS);
 }
 
 void capture(uint8_t p) {
@@ -102,6 +119,10 @@ void setup() {
   Serial.begin(115200);
   while (!Serial);
 
+  pinMode(BTN_GND, OUTPUT);
+  digitalWrite(BTN_GND, LOW);
+  pinMode(BTN_IN, INPUT_PULLUP);
+
   mpu.initialize();
   if (!mpu.testConnection()) {
     Serial.println(F("MPU6050 connection failed"));
@@ -118,13 +139,13 @@ void setup() {
   mpu.setXGyroOffset(0);  mpu.setYGyroOffset(0);  mpu.setZGyroOffset(0);
 
   Serial.println(F("=== six-pose IMU calibration ==="));
-  Serial.println(F("Hold each pose still, then send any character.\n"));
+  Serial.println(F("Hold each pose still, then press the button.\n"));
 
   for (uint8_t p = 0; p < NUM_POSES; p++) {
     Serial.print(F("Pose ")); Serial.print(p + 1);
     Serial.print(F(" of 6: ")); Serial.println(poseName[p]);
-    Serial.println(F("   send a character to capture"));
-    waitForKey();
+    Serial.println(F("   press the button to capture"));
+    waitForButton();
     Serial.println(F("   holding still..."));
     capture(p);
     Serial.print(F("   done, wobble = ")); Serial.println(wob[p]);
@@ -162,8 +183,8 @@ void setup() {
   /* --- gyro sign needs motion --- */
   Serial.println(F("--- gyro direction check ---"));
   Serial.println(F("Stand the robot upright, then tip it NOSE DOWN through"));
-  Serial.println(F("about 90 deg and leave it there. Send a character, then tip."));
-  waitForKey();
+  Serial.println(F("about 90 deg and leave it there. Press the button, then tip."));
+  waitForButton();
   Serial.println(F("tip now... (4 seconds)"));
   float netRotation = integrateGyro(latAxis, gyroBias[latAxis], 4000);
   float gyroSign = (netRotation * foreSign) > 0 ? 1.0f : -1.0f;
