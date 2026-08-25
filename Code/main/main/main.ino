@@ -61,11 +61,11 @@ const float FALL_LIMIT_DEG = 35.0;  // auto-disarm past this tilt
 
 // Define variables
 double setpoint, input, output;
-double Kp = 11.04, Ki = 132.0, Kd = 0.1375;
+double Kp = 11.04, Ki = 0.0, Kd = 0.2;
 
 // Create PID object
 // Arguments: Input, Output, Setpoint, Kp, Ki, Kd, Direction
-PID myPID(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
+PID myPID(&input, &output, &setpoint, Kp, Ki, Kd, REVERSE);
 
 const int MIN_PWM = 18; // lowest PWM that actually turns the wheels (measured)
 
@@ -179,7 +179,7 @@ void setup() {
 
   tPrev = millis();
 
-  setpoint = 5; // Target angle (0 degrees = upright)
+  setpoint = 0.0; // Target angle (0 degrees = upright)
 
   myPID.SetOutputLimits(-255, 255); // Match PWM range
   myPID.SetSampleTime(10);          // Match loop time (ms)
