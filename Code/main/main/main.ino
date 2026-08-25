@@ -8,11 +8,11 @@ MPU6050 mpu;
 /*---Offset registers forced to zero; bias handled in software.---*/
 
 /*--- From six-pose characterisation ---*/
-const float AY_BIAS  = -9581.0f;
-const float AZ_BIAS  = -11745.0f;
-const float AY_SCALE =  16393.0f;   // counts per g, measured
-const float AZ_SCALE =  16741.0f;
-const float GX_BIAS  =   -166.0f;   // gyro LSB at rest
+const float AY_BIAS  = -9626.6f;
+const float AZ_BIAS  = -11591.4f;
+const float AY_SCALE =  16441.7f;   // counts per g, measured
+const float AZ_SCALE =  16729.4f;
+const float GX_BIAS  =   -154.8f;   // gyro LSB at rest
 
 const float GYRO_LSB_PER_DPS = 131.0f;   // +/-250 deg/s
 const float GYRO_SIGN        = -1.0f;    // inverted mount
@@ -24,9 +24,9 @@ unsigned long tPrev;
 
 /*---Arduino to DRV8833 Mapping---*/
 int IN1 = 10; // Pin10 <---> IN1
-int IN2 = 9; // Pin9 <---> IN2
-int IN3 = 6; // Pin6 <---> IN3
-int IN4 = 5; // Pin5 <---> IN4
+int IN2 = 9;  // Pin9  <---> IN2
+int IN3 = 6;  // Pin6  <---> IN3
+int IN4 = 5;  // Pin5  <---> IN4
 // Batt+ <---> Vcc
 // Batt- <---> Gnd
 // MotorA <---> Out1
@@ -45,39 +45,121 @@ int IN4 = 5; // Pin5 <---> IN4
 // Gnd <---> Batt-
 
 /*---Arduino to LED/Button Mapping---*/
-const uint8_t BTN_GND = 4;   // driven LOW - acts as ground
-// 1k ohm resistor in series
-const uint8_t BTN_IN  = 7;   // input with internal pull-up
+const uint8_t BTN_IN    = 7;   // input w/ internal pull-up, button to GND rail
+const uint8_t RED_LED   = 12;  // power indicator,     anode via 330R to GND rail
+const uint8_t GREEN_LED = 8;   // balancing indicator, anode via 330R to GND rail
+
 const uint16_t DEBOUNCE_MS = 25;
 bool lastRaw = HIGH;
 bool stable  = HIGH;
 unsigned long lastChange = 0;
 
+/*---Arm state---*/
+bool balancing = false;
+const float ARM_WINDOW_DEG = 20.0;  // must be this upright to arm
+const float FALL_LIMIT_DEG = 35.0;  // auto-disarm past this tilt
+
 // Define variables
 double setpoint, input, output;
-double Kp = 10, Ki = 5.0, Kd = 0.0;
+double Kp = 11.04, Ki = 132.0, Kd = 0.1375;
 
 // Create PID object
 // Arguments: Input, Output, Setpoint, Kp, Ki, Kd, Direction
 PID myPID(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
 
+const int MIN_PWM = 18; // lowest PWM that actually turns the wheels (measured)
+
+/*---------------------------------------------------------*/
+
+void stopMotors() {
+  /* All four inputs LOW = outputs Hi-Z (coast). digitalWrite() also
+     detaches the timer, so this kills any analogWrite() in progress.
+     Coast rather than brake, so you can pick the robot up without the
+     wheels fighting you. */
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+}
+
+void arm() {
+  output = 0;                 // Initialize() seeds outputSum from this
+  myPID.SetMode(AUTOMATIC);   // bumpless transfer: clears integral + d-history
+  balancing = true;
+  digitalWrite(GREEN_LED, HIGH);
+  Serial.println(F("ARMED"));
+}
+
+void disarm() {
+  myPID.SetMode(MANUAL);
+  output = 0;
+  stopMotors();
+  balancing = false;
+  digitalWrite(GREEN_LED, LOW);
+  Serial.println(F("DISARMED"));
+}
+
+void fatalBlink() {            // visible fault code with no serial attached
+  while (true) {
+    digitalWrite(RED_LED, HIGH); delay(150);
+    digitalWrite(RED_LED, LOW);  delay(150);
+  }
+}
+
+void driveMotors(double output) {
+  int pwm = abs((int(output)));
+
+  if (pwm > 0) {
+    pwm = map(pwm, 1, 255, MIN_PWM, 255); // squeeze [1..255] into [MIN_PWM..255]
+  }
+  pwm = constrain(pwm, 0, 255);
+
+  if (output > 0) {
+    // Forward - slow decay
+    analogWrite(IN1, 255 - pwm);
+    digitalWrite(IN2, HIGH);
+    digitalWrite(IN3, HIGH);
+    analogWrite(IN4, 255 - pwm);
+  }
+  else {
+    // Reverse - slow decay
+    digitalWrite(IN1, HIGH);
+    analogWrite(IN2, 255 - pwm);
+    analogWrite(IN3, 255 - pwm);
+    digitalWrite(IN4, HIGH);
+  }
+}
+
+/*---------------------------------------------------------*/
+
 void setup() {
-  Wire.begin();
-  Wire.setClock(400000); // OPTIONAL: Boost I2C speed to 400kHz for faster updates
+  /* Indicators and motor outputs first - red lights the instant power
+     is applied, and the H-bridge is guaranteed idle before anything
+     that can block. */
+  pinMode(RED_LED, OUTPUT);
+  pinMode(GREEN_LED, OUTPUT);
+  digitalWrite(RED_LED, HIGH);
+  digitalWrite(GREEN_LED, LOW);
 
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
-  pinMode(BTN_GND, OUTPUT);
-  digitalWrite(BTN_GND, LOW);
+  stopMotors();
+
   pinMode(BTN_IN, INPUT_PULLUP);
+
+  Wire.begin();
+  Wire.setClock(400000); // OPTIONAL: Boost I2C speed to 400kHz for faster updates
+
+  Serial.begin(115200);
 
   mpu.initialize();
 
   /*Verify connection*/
   if (mpu.testConnection() == false) {
-    while (true);   // fatal: no MPU6050
+    Serial.println(F("MPU6050 connection failed"));
+    fatalBlink();
   }
 
   mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);
@@ -97,42 +179,21 @@ void setup() {
 
   tPrev = millis();
 
-  setpoint = 0.0; // Target angle (0 degrees = upright)
+  setpoint = 5; // Target angle (0 degrees = upright)
 
-  myPID.SetMode(AUTOMATIC); // Start the PID running
   myPID.SetOutputLimits(-255, 255); // Match PWM range
-  myPID.SetSampleTime(10); // Match loop time (ms)
+  myPID.SetSampleTime(10);          // Match loop time (ms)
+  myPID.SetMode(MANUAL);            // idle until the button says otherwise
+
+  Serial.println(F("Ready - stand upright and press to arm."));
 }
 
-const int MIN_PWM = 60; // lowest PWM that actually turns the wheels (measure it)
-
-void driveMotors(double output) {
-  int pwm = abs((int(output)));
-
-  if (pwm > 0) {
-    pwm = map(pwm, 1, 255, MIN_PWM, 255); // squeeze [1..255] into [MIN_PWM..255]
-  }
-  pwm = constrain(pwm, 0, 255);
-
-  if (output > 0) {
-    // Forward
-    digitalWrite(IN1, LOW);
-    analogWrite(IN2, pwm);
-    analogWrite(IN3, pwm);
-    digitalWrite(IN4, LOW);
-  }
-  else {
-    //Reverse
-    analogWrite(IN1, pwm);
-    digitalWrite(IN2, LOW);
-    digitalWrite(IN3, LOW);
-    analogWrite(IN4, pwm);
-  }
-}
+/*---------------------------------------------------------*/
 
 void loop() {
 
-  /* Complementary filter tick, every LOOP_MS */
+  /* 1. Complementary filter tick, every LOOP_MS. Runs armed or not, so
+        the angle is already converged by the time you press to arm. */
   unsigned long now = millis();
   if (now - tPrev >= LOOP_MS) {
     float dt = (now - tPrev) / 1000.0f;
@@ -150,6 +211,36 @@ void loop() {
 
     //1. Update input from filter
     input = angle; // degrees, from MPU6050
+  }
+
+  /* 2. Button - polled every pass, not gated by LOOP_MS */
+  bool raw = digitalRead(BTN_IN);
+  if (raw != lastRaw) {
+    lastRaw = raw;
+    lastChange = millis();
+  }
+  if (raw != stable && (millis() - lastChange) >= DEBOUNCE_MS) {
+    stable = raw;
+    if (stable == LOW) {                    // falling edge = press
+      if (balancing) {
+        disarm();
+      }
+      else if (fabs(angle) <= ARM_WINDOW_DEG) {
+        arm();
+      }
+      else {
+        Serial.print(F("Too far off vertical to arm: "));
+        Serial.println(angle);
+      }
+    }
+  }
+
+  /* 3. Everything below here is the balance loop */
+  if (!balancing) return;
+
+  if (fabs(angle) > FALL_LIMIT_DEG) {
+    disarm();
+    return;
   }
 
   // 2. Compute() returns true only when the sample time has elapsed
