@@ -6,7 +6,7 @@ int IN2 = 9;
 int IN3 = 6;
 int IN4 = 5;
 
-int speed = 60; // Value between 0 and 255 (Voltage must not exceed max motor voltage - measure this!)
+int speed = 25; // Value between 0 and 255 (Voltage must not exceed max motor voltage - measure this!)
 
 void setup() {
 
