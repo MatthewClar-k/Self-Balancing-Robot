@@ -19,6 +19,11 @@ const float GYRO_SIGN        = -1.0f;    // inverted mount
 const float ALPHA            = 0.98f;
 const unsigned long LOOP_MS  = 10;
 
+/* PID_v1 keeps its own millis() timer inside Compute(). Its guard is set
+   below the loop period so it never skips a call, and the gains are
+   rescaled to put the effective sample time back at LOOP_MS. See setup(). */
+const int PID_GUARD_MS = 9;
+
 float angle = 0.0f;                 // filtered pitch, degrees
 unsigned long tPrev;
 
@@ -65,6 +70,7 @@ double Kp = 11.04, Ki = 0.0, Kd = 0.2;
 
 // Create PID object
 // Arguments: Input, Output, Setpoint, Kp, Ki, Kd, Direction
+// NOTE: these constructor gains are superseded by SetTunings() in setup().
 PID myPID(&input, &output, &setpoint, Kp, Ki, Kd, REVERSE);
 
 const int MIN_PWM = 18; // lowest PWM that actually turns the wheels (measured)
@@ -182,7 +188,20 @@ void setup() {
   setpoint = 0.0; // Target angle (0 degrees = upright)
 
   myPID.SetOutputLimits(-255, 255); // Match PWM range
-  myPID.SetSampleTime(10);          // Match loop time (ms)
+
+  /* Compute() is called once per filter tick, so its internal guard must
+     never reject a call. Consecutive calls land 10-11 ms apart in millis()
+     terms, so a 9 ms guard always passes.
+
+     SetTunings() derives its internal ki/kd from whatever SampleTime is
+     current, so the two factors below cancel the 9 ms guard and restore
+     exactly the scaling of a clean LOOP_MS sample. Change gains through
+     SetTunings(), not by editing the constructor on line 71. */
+  myPID.SetSampleTime(PID_GUARD_MS);
+  myPID.SetTunings(Kp,
+                   Ki * (double)LOOP_MS / (double)PID_GUARD_MS,
+                   Kd * (double)PID_GUARD_MS / (double)LOOP_MS);
+
   myPID.SetMode(MANUAL);            // idle until the button says otherwise
 
   Serial.println(F("Ready - stand upright and press to arm."));
@@ -193,7 +212,13 @@ void setup() {
 void loop() {
 
   /* 1. Complementary filter tick, every LOOP_MS. Runs armed or not, so
-        the angle is already converged by the time you press to arm. */
+        the angle is already converged by the time you press to arm.
+
+        The control update lives in here too. Both used to run off their
+        own millis() timer, which left the PID reading an input of
+        arbitrary age and made the D-term see a doubled or missing
+        difference whenever the two timers crossed. One tick, one
+        sensor read, one Compute(). */
   unsigned long now = millis();
   if (now - tPrev >= LOOP_MS) {
     float dt = (now - tPrev) / 1000.0f;
@@ -209,8 +234,17 @@ void loop() {
 
     angle = ALPHA * (angle + rate * dt) + (1.0f - ALPHA) * accAngle;
 
-    //1. Update input from filter
     input = angle; // degrees, from MPU6050
+
+    if (balancing) {
+      if (fabs(angle) > FALL_LIMIT_DEG) {
+        disarm();
+      }
+      else {
+        myPID.Compute();
+        driveMotors(output);
+      }
+    }
   }
 
   /* 2. Button - polled every pass, not gated by LOOP_MS */
@@ -233,19 +267,5 @@ void loop() {
         Serial.println(angle);
       }
     }
-  }
-
-  /* 3. Everything below here is the balance loop */
-  if (!balancing) return;
-
-  if (fabs(angle) > FALL_LIMIT_DEG) {
-    disarm();
-    return;
-  }
-
-  // 2. Compute() returns true only when the sample time has elapsed
-  if (myPID.Compute()) {
-    // 3. Act on the output
-    driveMotors(output);
   }
 }
