@@ -66,14 +66,14 @@ const float FALL_LIMIT_DEG = 35.0;  // auto-disarm past this tilt
 
 // Define variables
 double setpoint, input, output;
-double Kp = 11.04, Ki = 0.0, Kd = 0.2;
+double Kp = 15.1, Ki = 33, Kd = 0.17;
 
 // Create PID object
 // Arguments: Input, Output, Setpoint, Kp, Ki, Kd, Direction
 // NOTE: these constructor gains are superseded by SetTunings() in setup().
 PID myPID(&input, &output, &setpoint, Kp, Ki, Kd, REVERSE);
 
-const int MIN_PWM = 18; // lowest PWM that actually turns the wheels (measured)
+const int MIN_PWM = 6; // lowest PWM that actually turns the wheels (measured)
 
 /*---------------------------------------------------------*/
 
