@@ -32,26 +32,10 @@ int IN1 = 10; // Pin10 <---> IN1
 int IN2 = 9;  // Pin9  <---> IN2
 int IN3 = 6;  // Pin6  <---> IN3
 int IN4 = 5;  // Pin5  <---> IN4
-// Batt+ <---> Vcc
-// Batt- <---> Gnd
-// MotorA <---> Out1
-// MotorA <---> Out2
-// MotorB <---> Out3
-// MotorB <---> Out4
-
-/*---Arduino to MP6050 Mapping---*/
-// 5V <---> Vcc
-// Gnd <---> Gnd
-// SCL <---> SCL
-// SDA <---> SDA
-
-/*---Arduino to Battery Mapping---*/
-// Vin <---> Batt+
-// Gnd <---> Batt-
 
 /*---Arduino to LED/Button Mapping---*/
 const uint8_t BTN_IN    = 7;   // input w/ internal pull-up, button to GND rail
-const uint8_t RED_LED   = 12;  // power indicator,     anode via 330R to GND rail
+const uint8_t RED_LED   = 12;  // power indicator, anode via 330R to GND rail
 const uint8_t GREEN_LED = 8;   // balancing indicator, anode via 330R to GND rail
 
 const uint16_t DEBOUNCE_MS = 25;
